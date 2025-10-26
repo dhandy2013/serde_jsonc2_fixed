@@ -244,64 +244,57 @@ impl<'de, R: Read<'de>> Deserializer<R> {
         Error::syntax(reason, position.line, position.column)
     }
 
-    /// Returns the first non-comment byte without consuming it, or `None` if
-    /// EOF is encountered.
-    fn parse_comment(&mut self) -> Result<Option<u8>> {
-        // Move the cursor after the first slash.
-        self.eat_char();
-
-        match tri!(self.peek()) {
-            Some(b'/') => self.parse_line_comment(),
-            Some(b'*') => self.parse_block_comment(),
-
-            // Random bad `/` in a whitespace position.
-            // Lie, false rewind.
-            // FIXME: Actually rewind?
-            _ => Ok(Some(b'/')),
-        }
-    }
-
-    fn parse_line_comment(&mut self) -> Result<Option<u8>> {
-        // Eat the second character of the prefix.
-        self.eat_char();
+    /// A "/" character has already been consumed, and the next character is
+    /// also "/". Consume all characters up to but not including end-of-line.
+    fn consume_line_comment(&mut self) -> Result<()> {
         loop {
+            self.eat_char();
             match tri!(self.peek()) {
-                Some(b'\r') | Some(b'\n') => {
-                    self.eat_char();
-                    return self.parse_whitespace();
+                Some(b'\r') | Some(b'\n') | None => {
+                    return Ok(());
                 }
-                Some(_) => self.eat_char(),
-                None => return self.parse_whitespace(),
+                Some(_) => {}
             };
         }
     }
 
-    fn parse_block_comment(&mut self) -> Result<Option<u8>> {
-        // Eat the second character of the prefix.
-        self.eat_char();
-
-        // Try to find the suffix.
+    /// A "/" character has already been consumed, and the next character is
+    /// "*". Consume all characters up to and including the next "*/" sequence
+    /// following the current "*" character.
+    ///
+    /// Currently, if the data stream ends with an un-terminated block comment,
+    /// it ignores the comment instead of returning an error. This is the
+    /// behavior of the original version of serde_jsonc2; it was not changed by
+    /// the PR that fixed the stack overflow problem.
+    fn consume_block_comment(&mut self) -> Result<()> {
         loop {
+            self.eat_char();
             match tri!(self.peek()) {
                 Some(b'*') => {
                     self.eat_char();
                     match tri!(self.peek()) {
                         Some(b'/') => {
                             self.eat_char();
-                            return self.parse_whitespace();
+                            return Ok(());
                         }
-                        Some(_) => self.eat_char(),
-                        None => return self.parse_whitespace(),
+                        Some(_) => {}
+                        None => return Ok(()),
                     }
                 }
-                Some(_) => self.eat_char(),
-                None => return self.parse_whitespace(),
+                Some(_) => {}
+                None => return Ok(()),
             };
         }
     }
 
     /// Returns the first non-whitespace byte without consuming it, or `None` if
     /// EOF is encountered.
+    ///
+    /// If a "/" character is encountered while consuming whitespace, if that
+    /// character is the beginning of a comment then the comment is also
+    /// consumed as if it were whitespace. If the "/" character is not the
+    /// start of a comment (is not followed by another "/" or by "*") then the
+    /// first "/" character is both consumed and returned.
     fn parse_whitespace(&mut self) -> Result<Option<u8>> {
         loop {
             match tri!(self.peek()) {
@@ -310,7 +303,18 @@ impl<'de, R: Read<'de>> Deserializer<R> {
                 }
 
                 Some(b'/') => {
-                    return self.parse_comment();
+                    self.eat_char();
+                    match tri!(self.peek()) {
+                        Some(b'/') => {
+                            self.consume_line_comment()?;
+                        }
+                        Some(b'*') => {
+                            self.consume_block_comment()?;
+                        }
+                        _ => {
+                            return Ok(Some(b'/'));
+                        }
+                    }
                 }
 
                 other => {
