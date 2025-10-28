@@ -17,20 +17,20 @@ const NUM_CONSECUTIVE_COMMENTS: usize = 128;
 
 #[test]
 fn test_many_consecutive_block_comments() {
-    let path = create_jsonc_bytes(|w, i| {
+    let bytes = create_jsonc_bytes(|w, i| {
         // Create block comment
         writeln!(w, "/* Comment line {i} */").unwrap()
     });
-    load_jsonc_bytes_in_thread(path);
+    load_jsonc_bytes_in_thread(bytes);
 }
 
 #[test]
 fn test_many_consecutive_line_comments() {
-    let path = create_jsonc_bytes(|w, i| {
+    let bytes = create_jsonc_bytes(|w, i| {
         // Create line comment
         writeln!(w, "// Comment line {i}").unwrap()
     });
-    load_jsonc_bytes_in_thread(path);
+    load_jsonc_bytes_in_thread(bytes);
 }
 
 fn create_jsonc_bytes<F>(mut create_comment_callback: F) -> Vec<u8>
