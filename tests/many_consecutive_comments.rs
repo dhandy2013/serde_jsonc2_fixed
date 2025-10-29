@@ -42,7 +42,6 @@ where
         create_comment_callback(&mut w, i);
     }
     writeln!(w, "{{\"a\": 1}}").unwrap();
-    w.flush().unwrap();
     w
 }
 
